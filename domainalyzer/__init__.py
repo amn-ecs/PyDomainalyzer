@@ -386,35 +386,29 @@ class Domainalyzer:
         hostname = search_term.lower()
         hostname = re.sub(r'^\s*(\S+)\s*$', r'\1', hostname)
 
-        try:
+        a_records = None
+        if hostname in self.forward_a_map:
             a_records = self.forward_a_map[hostname]
-        except KeyError:
-            a_records = None
 
-        try:
+        aaaa_records = None
+        if hostname in self.forward_aaaa_map:
             aaaa_records = self.forward_aaaa_map[hostname]
-        except KeyError:
-            aaaa_records = None
 
-        try:
+        ip_list = None
+        if hostname in self.forward_name_map:
             ip_list = self.forward_name_map[hostname]
-        except KeyError:
-            ip_list = None
 
-        try:
+        cname_to_list = None
+        if hostname in self.forward_cname_map:
             cname_to_list = self.forward_cname_map[hostname]
-        except KeyError:
-            cname_to_list = None
 
-        try:
+        cname_from_list = None
+        if hostname in self.reverse_cname_map:
             cname_from_list = self.reverse_cname_map[hostname]
-        except KeyError:
-            cname_from_list = None
 
-        try:
+        ptr_list = None
+        if hostname in self.reverse_ptr_map:
             ptr_list = self.reverse_ptr_map[hostname]
-        except KeyError:
-            ptr_list = None
 
         return {
           'A'         : a_records,
