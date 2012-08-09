@@ -366,10 +366,23 @@ class Domainalyzer:
           'PTR_LIST'       : ptr_list,
         }
 
-    def searchByIP(self, search_term):
+    def lookupByIP(self, ip):
         """
         Searches for an IP address and returns everything we know about it
         from our DNS info.  Supports IPv4 and IPv6.
         """
-        pass
+        ip = re.sub(r'^\s*(\S+)\s*$', r'\1', ip)
+
+        ptr_records = None
+        if ip in self.reverse_ptr_map:
+            ptr_records = self.reverse_ptr_map[ip]
+
+        name_list = None
+        if ip in self.reverse_ip_map:
+            name_list = self.reverse_ip_map[ip]
+
+        return{
+          'PTR_LIST'  : ptr_records,
+          'NAME_LIST' : name_list,
+        }
         
