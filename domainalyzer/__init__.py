@@ -28,6 +28,7 @@ import dns.resolver, dns.query, dns.zone
 import re
 import cPickle
 from IPy import IP
+from collections import defaultdict
 
 class Domainalyzer:
     """
@@ -39,30 +40,30 @@ class Domainalyzer:
     ## Forward and reverse IP-based records from DNS
 
     # Map of A record -> [IP list] from DNS
-    forward_a_map = {}
+    forward_a_map = defaultdict(list)
 
     # The same for AAAAs
-    forward_aaaa_map = {}
+    forward_aaaa_map = defaultdict(list)
 
     # Map of PTR IP -> [name list] from DNS (v4 and v6)
-    reverse_ptr_map = {}
+    reverse_ptr_map = defaultdict(list)
 
     ## Forward and reverse CNAME records from DNS (aliases)
 
     # Map of CNAME -> name from DNS
-    forward_cname_map = {}
+    forward_cname_map = defaultdict(list)
 
     # Reverse map of name -> CNAME built from CNAMES
-    reverse_cname_map = {}
+    reverse_cname_map = defaultdict(list)
 
 
     ## Generated forward and reverse entries ignoring the source record type
 
     # Reverse map of IP -> [list of names] built from CNAMES, As and AAAAs
-    reverse_ip_map = {}
+    reverse_ip_map = defaultdict(list)
 
     # Map of hostname (from any source record) -> [IP list]
-    forward_name_map = {}
+    forward_name_map = defaultdict(list)
 
     
     def __init__(self, server, domains, rzones):
@@ -74,8 +75,6 @@ class Domainalyzer:
         # Build mappings for the forward DNS zones
         for domain_name in domains:
 
-            print "Domain: "+domain_name
-
             # Do a zone transfer from the master DNS server
             try:
                 zone = dns.zone.from_xfr(dns.query.xfr(server, domain_name), relativize=False)
@@ -86,8 +85,6 @@ class Domainalyzer:
         
         # Build mappings for the reverse DNS zones
         for rzone_name in rzones:
-
-            print "Reverse zone: "+rzone_name
 
             # We need to know if it's an IPv6 zone or not for building the mappings later
             is_v6 = False
@@ -161,101 +158,48 @@ class Domainalyzer:
             to_name   = (str(rdata.target)+'.'+domain_name).lower()
 
             self.forward_cname_map[from_name] = to_name
-            try:
-                tmp = self.reverse_cname_map[to_name]
-            except KeyError:
-                tmp = []
-                self.reverse_cname_map[to_name] = tmp
-            tmp.append(from_name)
+            self.reverse_cname_map[to_name].append(from_name)
 
         # Build map of A => IP and back
         for (name, ttl, rdata) in zone.iterate_rdatas('A'):
             # Fully qualify the domain names
             from_name = (str(name)+'.'+domain_name).lower()
-            to_name   = str(rdata.address)
+            to_ip   = str(rdata.address)
 
-            try:
-                tmp = self.forward_a_map[from_name]
-            except KeyError:
-                tmp = []
-                self.forward_a_map[from_name] = tmp
+            # Add to A record map
+            self.forward_a_map[from_name].append(to_ip)
 
-            tmp.append(to_name)
+            # Add forward and reverse entries to general name and IP maps
+            self.reverse_ip_map[to_ip].append(from_name)
+            self.forward_name_map[from_name].append(to_ip)
 
-            try:
-                tmp_ip = self.reverse_ip_map[to_name]
-            except KeyError:
-                tmp_ip = []
-                self.reverse_ip_map[to_name] = tmp_ip
-        
-            tmp_ip.append(from_name)
+            # Loop over all the CNAMEs for this A record and
+            # add general forward/reverse entries
+            for cname in self.reverse_cname_map[from_name]:
+                self.reverse_ip_map[to_ip].append(cname)
+                self.forward_name_map[cname].append(to_ip)
 
-            try:
-                tmp_name = self.forward_name_map[from_name]
-            except KeyError:
-                tmp_name = []
-                self.forward_name_map[from_name] = tmp_name
-
-            tmp_name.append(to_name)
-
-            try:
-                for cname in self.reverse_cname_map[from_name]:
-                    tmp_ip.append(cname)
-                    try:
-                        tmp = self.forward_name_map[cname]
-                    except KeyError:
-                        tmp = []
-                        self.forward_name_map[cname] = tmp
-                    tmp.append(to_name)
-
-            except KeyError:
-                pass
 
         # Map AAAA -> IP
         for (name, ttl, rdata) in zone.iterate_rdatas('AAAA'):
 
             # Fully qualify the domain names
             from_name = (str(name)+'.'+domain_name).lower()
-            to_name   = str(rdata.address)
+            to_ip     = str(rdata.address)
 
             # Minimise address using IPy
-            to_name = str(IP(to_name))
+            to_ip     = str(IP(to_ip))
 
-            try:
-                tmp = self.forward_aaaa_map[from_name]
-            except KeyError:
-                tmp = []
-                self.forward_aaaa_map[from_name] = tmp
-
-            tmp.append(to_name)
+            # Add to AAAA record map
+            self.forward_aaaa_map[from_name].append(to_ip)
         
-            try:
-                tmp_ip = self.reverse_ip_map[to_name]
-            except KeyError:
-                tmp_ip = []
-                self.reverse_ip_map[to_name] = tmp_ip
+            # Add forward and reverse entries to general name and IP maps
+            self.reverse_ip_map[to_ip].append(from_name)
+            self.forward_name_map[from_name].append(to_ip)
 
-            tmp_ip.append(from_name)
-
-            try:
-                tmp_name = self.forward_name_map[from_name]
-            except KeyError:
-                tmp_name = []
-                self.forward_name_map[from_name] = tmp_name
-
-            tmp_name.append(to_name)
-
-            try:
-                for cname in self.reverse_cname_map[from_name]:
-                    tmp.append(cname.lower())
-                    try:
-                        tmp = self.forward_name_map[cname]
-                    except KeyError:
-                        tmp = []
-                        self.forward_name_map[cname] = tmp
-                    tmp.append(to_name)
-            except KeyError:
-                pass
+            for cname in self.reverse_cname_map[from_name]:
+                self.forward_name_map[cname].append(to_ip)
+                self.reverse_ip_map[to_ip].append(cname)
 
 
     def map_reverse_zone(self, rzone, is_v6, ip_prefix):
@@ -265,8 +209,8 @@ class Domainalyzer:
         """
 
         for (name, ttl, rdata) in rzone.iterate_rdatas('PTR'):
-            from_name = str(name)
-            to_name   = re.sub(r'\.$', '', str(rdata.target).lower())
+            from_ip = str(name)
+            to_name = re.sub(r'\.$', '', str(rdata.target).lower())
 
 
             # IPv4 address - e.g. 132.23 in 168.192.IN-ADDR.ARPA, prefix is 192.168
@@ -274,11 +218,11 @@ class Domainalyzer:
             if(not is_v6):
 
                 # Convert "132.32" to [32, 132]
-                parts = from_name.split('.')
+                parts = from_ip.split('.')
                 parts.reverse()
 
                 # Stick on the prefix and join with dots to give "192.168.32.132"
-                from_name = ip_prefix + '.' + '.'.join(parts)
+                from_ip = ip_prefix + '.' + '.'.join(parts)
 
 
             # IPv6 address - e.g. f.e.1.2.3.4.1.2.3.4.1.2.3.4.1.2.3.4.1.2.3.4
@@ -288,34 +232,28 @@ class Domainalyzer:
                 # Convert "f.e.1.2.3.4.1.2.3.4.1.2.3.4.1.2.3.4.1.2.3.4"
                 # to      "4.3.2.1.4.3.2.1.4.3.2.1.4.3.2.1.4.3.2.1.e.f"
                 # by reversing string
-                from_name = from_name[::-1]
+                from_ip = from_ip[::-1]
 
                 # Stick on the prefix and remove all dots to give
                 # "3ffe11080843214321432143214321ef"
-                from_name = ip_prefix + re.sub(r'\.', '', from_name)
+                from_ip = ip_prefix + re.sub(r'\.', '', from_ip)
 
                 # Convert to colon-separated 4 char sequences to give
                 # "3ffe:1108:0843:2143:2143:2143:2143:21ef:"
-                from_name = re.sub(r'(....)', r'\1:', from_name)
+                from_ip = re.sub(r'(....)', r'\1:', from_ip)
 
                 # Remove colon from the end to give "3ffe:1108:0843:2143:2143:2143:2143:21ef"
-                from_name = re.sub(r':$', '', from_name)
+                from_ip = re.sub(r':$', '', from_ip)
 
                 # Minimise address using IPy to give "3ffe:1108:843:2143:2143:2143:2143:21ef"
                 # NB this just gives us a standard minimised representation
                 # of all IPv6 addresses, for easy comparison
-                from_name = str(IP(from_name))
+                from_ip = str(IP(from_ip))
 
                     
 
             # Add the PTR mapping of IP -> [name list]
-            try:
-                tmp = self.reverse_ptr_map[from_name]
-            except KeyError:
-                tmp = []
-                self.reverse_ptr_map[from_name] = tmp
-            
-            tmp.append(to_name)
+            self.reverse_ptr_map[from_ip].append(to_name)
 
 
     def __getstate__(self):
@@ -376,16 +314,18 @@ class Domainalyzer:
         return problems
 
 
-    def searchByHostname(self, search_term):
+
+    def lookupByHostname(self, hostname):
         """
-        Searches for a hostname and returns everything we know about it
+        Given a hostname, returns everything we know about it
         from our DNS info.
         """
 
         # Convert to lowercase for searching, and remove any whitespace padding
-        hostname = search_term.lower()
+        hostname = hostname.lower()
         hostname = re.sub(r'^\s*(\S+)\s*$', r'\1', hostname)
 
+        # Find any entries we have for the hostname in any of our maps
         a_records = None
         if hostname in self.forward_a_map:
             a_records = self.forward_a_map[hostname]
@@ -398,9 +338,9 @@ class Domainalyzer:
         if hostname in self.forward_name_map:
             ip_list = self.forward_name_map[hostname]
 
-        cname_to_list = None
+        cname_to = None
         if hostname in self.forward_cname_map:
-            cname_to_list = self.forward_cname_map[hostname]
+            cname_to = self.forward_cname_map[hostname]
 
         cname_from_list = None
         if hostname in self.reverse_cname_map:
@@ -410,13 +350,20 @@ class Domainalyzer:
         if hostname in self.reverse_ptr_map:
             ptr_list = self.reverse_ptr_map[hostname]
 
+        # This is the "CNAME with" list - i.e. if this is a CNAME,
+        # what else is CNAMEd to the same real hostname?
+        cname_with_list = None
+        if cname_to:
+            cname_with_list = self.reverse_cname_map[cname_to]
+
         return {
-          'A'         : a_records,
-          'AAAA'      : aaaa_records,
-          'IP_LIST'   : ip_list,
-          'CNAME_TO'  : cname_to_list,
-          'CNAME_FROM': cname_from_list,
-          'PTR'       : ptr_list,
+          'A_LIST'         : a_records,
+          'AAAA_LIST'      : aaaa_records,
+          'IP_LIST'        : ip_list,
+          'CNAME_TO'       : cname_to,
+          'CNAME_FROM_LIST': cname_from_list,
+          'CNAME_WITH_LIST': cname_with_list,
+          'PTR_LIST'       : ptr_list,
         }
 
     def searchByIP(self, search_term):
