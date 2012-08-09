@@ -40,30 +40,31 @@ class Domainalyzer:
     ## Forward and reverse IP-based records from DNS
 
     # Map of A record -> [IP list] from DNS
-    forward_a_map = defaultdict(list)
+    a_record_to_ip_map = defaultdict(list)
+    ip_to_a_record_map = defaultdict(list)
 
     # The same for AAAAs
-    forward_aaaa_map = defaultdict(list)
+    aaaa_record_to_ip_map = defaultdict(list)
+    ip_to_aaaa_record_map = defaultdict(list)
 
     # Map of PTR IP -> [name list] from DNS (v4 and v6)
-    reverse_ptr_map = defaultdict(list)
+    ptr_record_to_name_map = defaultdict(list)
+    name_to_ptr_record_map = defaultdict(list)
 
     ## Forward and reverse CNAME records from DNS (aliases)
 
     # Map of CNAME -> name from DNS
     forward_cname_map = defaultdict(list)
-
-    # Reverse map of name -> CNAME built from CNAMES
     reverse_cname_map = defaultdict(list)
 
 
     ## Generated forward and reverse entries ignoring the source record type
 
     # Reverse map of IP -> [list of names] built from CNAMES, As and AAAAs
-    reverse_ip_map = defaultdict(list)
+    ip_to_all_names_map = defaultdict(list)
 
     # Map of hostname (from any source record) -> [IP list]
-    forward_name_map = defaultdict(list)
+    name_to_all_ip_map = defaultdict(list)
 
     
     def __init__(self, server, domains, rzones):
@@ -167,17 +168,18 @@ class Domainalyzer:
             to_ip   = str(rdata.address)
 
             # Add to A record map
-            self.forward_a_map[from_name].append(to_ip)
+            self.a_record_to_ip_map[from_name].append(to_ip)
+            self.ip_to_a_record_map[to_ip].append(from_name)
 
             # Add forward and reverse entries to general name and IP maps
-            self.reverse_ip_map[to_ip].append(from_name)
-            self.forward_name_map[from_name].append(to_ip)
+            self.ip_to_all_names_map[to_ip].append(from_name)
+            self.name_to_all_ip_map[from_name].append(to_ip)
 
             # Loop over all the CNAMEs for this A record and
             # add general forward/reverse entries
             for cname in self.reverse_cname_map[from_name]:
-                self.reverse_ip_map[to_ip].append(cname)
-                self.forward_name_map[cname].append(to_ip)
+                self.ip_to_all_names_map[to_ip].append(cname)
+                self.name_to_all_ip_map[cname].append(to_ip)
 
 
         # Map AAAA -> IP
@@ -191,15 +193,16 @@ class Domainalyzer:
             to_ip     = str(IP(to_ip))
 
             # Add to AAAA record map
-            self.forward_aaaa_map[from_name].append(to_ip)
+            self.aaaa_record_to_ip_map[from_name].append(to_ip)
+            self.ip_to_aaaa_record_map[to_ip].append(from_name)
         
             # Add forward and reverse entries to general name and IP maps
-            self.reverse_ip_map[to_ip].append(from_name)
-            self.forward_name_map[from_name].append(to_ip)
+            self.ip_to_all_names_map[to_ip].append(from_name)
+            self.name_to_all_ip_map[from_name].append(to_ip)
 
             for cname in self.reverse_cname_map[from_name]:
-                self.forward_name_map[cname].append(to_ip)
-                self.reverse_ip_map[to_ip].append(cname)
+                self.name_to_all_ip_map[cname].append(to_ip)
+                self.ip_to_all_names_map[to_ip].append(cname)
 
 
     def map_reverse_zone(self, rzone, is_v6, ip_prefix):
@@ -253,7 +256,8 @@ class Domainalyzer:
                     
 
             # Add the PTR mapping of IP -> [name list]
-            self.reverse_ptr_map[from_ip].append(to_name)
+            self.ptr_record_to_name_map[from_ip].append(to_name)
+            self.name_to_ptr_record_map[to_name].append(from_ip)
 
 
     def __getstate__(self):
@@ -261,26 +265,32 @@ class Domainalyzer:
         For pickling purposes - returns a list of all the internal mappings we have built.
         """
         return [
-          self.forward_a_map,
-          self.forward_aaaa_map,
+          self.a_record_to_ip_map,
+          self.ip_to_a_record_map,
+          self.aaaa_record_to_ip_map,
+          self.ip_to_aaaa_record_map,
           self.forward_cname_map,
-          self.forward_name_map,
           self.reverse_cname_map,
-          self.reverse_ptr_map,
-          self.reverse_ip_map
+          self.ptr_record_to_name_map,
+          self.name_to_ptr_record_map,
+          self.name_to_all_ip_map,
+          self.ip_to_all_names_map,
         ]
 
     def __setstate__(self, state):
         """
         For unpickling purposes - populates our internal mappings with data loaded from a pickle.
         """
-        self.forward_a_map     = state[0]
-        self.forward_aaaa_map  = state[1]
-        self.forward_cname_map = state[2]
-        self.forward_name_map  = state[3]
-        self.reverse_cname_map = state[4]
-        self.reverse_ptr_map   = state[5]
-        self.reverse_ip_map    = state[6]
+        self.a_record_to_ip_map     = state[0]
+        self.ip_to_a_record_map     = state[1]
+        self.aaaa_record_to_ip_map  = state[2]
+        self.ip_to_aaaa_record_map  = state[3]
+        self.forward_cname_map      = state[4]
+        self.reverse_cname_map      = state[5]
+        self.ptr_record_to_name_map = state[6]
+        self.name_to_ptr_record_map = state[7]
+        self.name_to_all_ip_map     = state[8]
+        self.ip_to_all_names_map    = state[9]
 
 
     def findProblems(self):
@@ -291,25 +301,26 @@ class Domainalyzer:
 
         problems = []
 
-        for ip in self.reverse_ptr_map.keys():
-            # Get PTR record for IP
-            ptr = self.reverse_ptr_map[ip]
+        for ip in self.ptr_record_to_name_map.keys():
 
-            try:
-                ok = False
-                # Check all forward entries that point to this IP
-                for maps_to in self.reverse_ip_map[ip]:
-                    if(maps_to == ptr):
-                        ok = True
-                        break
+            # Get PTR record(s) for IP
+            for ptr in self.ptr_record_to_name_map[ip]:
 
-                # Didn't find one in the list - we have one or more forward records, but none of them match the PTR
-                if(not ok):
-                    problems.append("PTR for IP "+ip+" ("+ptr+") has no corresponding forward DNS entry - records are: "+','.join(self.reverse_ip_map[ip]))
+                try:
+                    ok = False
+                    # Check all forward entries that point to this IP
+                    for maps_to in self.ip_to_all_names_map[ip]:
+                        if(maps_to == ptr):
+                            ok = True
+                            break
 
-            # No forward DNS entry at all
-            except KeyError:
-                problems.append("PTR for IP "+ip+" ("+ptr+") has no forward DNS entry (A or AAAA)")
+                    # Didn't find one in the list - we have one or more forward records, but none of them match the PTR
+                    if(not ok):
+                        problems.append("PTR for IP "+ip+" ("+ptr+") has no corresponding forward DNS entry - records are: "+','.join(self.ip_to_all_names_map[ip]))
+
+                # No forward DNS entry at all
+                except KeyError:
+                    problems.append("PTR for IP "+ip+" ("+ptr+") has no forward DNS entry (A or AAAA)")
 
         return problems
 
@@ -327,16 +338,16 @@ class Domainalyzer:
 
         # Find any entries we have for the hostname in any of our maps
         a_records = None
-        if hostname in self.forward_a_map:
-            a_records = self.forward_a_map[hostname]
+        if hostname in self.a_record_to_ip_map:
+            a_records = self.a_record_to_ip_map[hostname]
 
         aaaa_records = None
-        if hostname in self.forward_aaaa_map:
-            aaaa_records = self.forward_aaaa_map[hostname]
+        if hostname in self.aaaa_record_to_ip_map:
+            aaaa_records = self.aaaa_record_to_ip_map[hostname]
 
         ip_list = None
-        if hostname in self.forward_name_map:
-            ip_list = self.forward_name_map[hostname]
+        if hostname in self.name_to_all_ip_map:
+            ip_list = self.name_to_all_ip_map[hostname]
 
         cname_to = None
         if hostname in self.forward_cname_map:
@@ -347,8 +358,8 @@ class Domainalyzer:
             cname_from_list = self.reverse_cname_map[hostname]
 
         ptr_list = None
-        if hostname in self.reverse_ptr_map:
-            ptr_list = self.reverse_ptr_map[hostname]
+        if hostname in self.ptr_record_to_name_map:
+            ptr_list = self.ptr_record_to_name_map[hostname]
 
         # This is the "CNAME with" list - i.e. if this is a CNAME,
         # what else is CNAMEd to the same real hostname?
@@ -373,15 +384,25 @@ class Domainalyzer:
         """
         ip = re.sub(r'^\s*(\S+)\s*$', r'\1', ip)
 
+        a_records = None
+        if ip in self.ip_to_a_record_map:
+            a_records = self.ip_to_a_record_map[ip]
+
+        aaaa_records = None
+        if ip in self.ip_to_aaaa_record_map:
+            aaaa_records = self.ip_to_aaaa_record_map[ip]
+
         ptr_records = None
-        if ip in self.reverse_ptr_map:
-            ptr_records = self.reverse_ptr_map[ip]
+        if ip in self.ptr_record_to_name_map:
+            ptr_records = self.ptr_record_to_name_map[ip]
 
         name_list = None
-        if ip in self.reverse_ip_map:
-            name_list = self.reverse_ip_map[ip]
+        if ip in self.ip_to_all_names_map:
+            name_list = self.ip_to_all_names_map[ip]
 
         return{
+          'A_LIST'    : a_records,
+          'AAAA_LIST' : aaaa_records,
           'PTR_LIST'  : ptr_records,
           'NAME_LIST' : name_list,
         }
