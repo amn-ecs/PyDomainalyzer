@@ -29,6 +29,7 @@ import re
 import cPickle
 from IPy import IP
 from collections import defaultdict
+from datetime import datetime
 
 class Domainalyzer:
     """
@@ -66,12 +67,19 @@ class Domainalyzer:
     # Map of hostname (from any source record) -> [IP list]
     name_to_all_ip_map = defaultdict(list)
 
-    
+    # Date/time at which the DNS info was processed
+    processed_at = None
+ 
+    # List of the domain names we actually know about
+    known_domains = []
+
     def __init__(self, server, domains, rzones):
         """
         Requests zone transfer(s) from the specified DNS server of every forward
         and reverse zone we're interested in, and builds internal mapping tables. 
         """
+
+        self.processed_at = datetime.now()
 
         # Build mappings for the forward DNS zones
         for domain_name in domains:
@@ -80,7 +88,7 @@ class Domainalyzer:
             try:
                 zone = dns.zone.from_xfr(dns.query.xfr(server, domain_name), relativize=False)
             except:
-                print "Failed to load "+domain_name
+                #print "Failed to load "+domain_name
                 continue
             self.map_forward_zone(zone, domain_name)
         
@@ -126,7 +134,7 @@ class Domainalyzer:
                 query = dns.query.xfr(server, rzone_name)
                 rzone = dns.zone.from_xfr(query, relativize=False)
             except:
-                print "Failed to process zone "+rzone_name
+                #print "Failed to process zone "+rzone_name
                 continue
 
             # Now we've done all that hairy stuff, build the mappings
@@ -204,6 +212,7 @@ class Domainalyzer:
                 self.name_to_all_ip_map[cname].append(to_ip)
                 self.ip_to_all_names_map[to_ip].append(cname)
 
+        self.known_domains.append(domain_name)
 
     def map_reverse_zone(self, rzone, is_v6, ip_prefix):
         """
@@ -275,6 +284,8 @@ class Domainalyzer:
           self.name_to_ptr_record_map,
           self.name_to_all_ip_map,
           self.ip_to_all_names_map,
+          self.processed_at,
+          self.known_domains,
         ]
 
     def __setstate__(self, state):
@@ -291,7 +302,8 @@ class Domainalyzer:
         self.name_to_ptr_record_map = state[7]
         self.name_to_all_ip_map     = state[8]
         self.ip_to_all_names_map    = state[9]
-
+        self.processed_at           = state[10]
+        self.known_domains          = state[11]
 
     def findProblems(self):
         """
@@ -305,6 +317,12 @@ class Domainalyzer:
 
             # Get PTR record(s) for IP
             for ptr in self.ptr_record_to_name_map[ip]:
+                
+                # If the PTR points at a domain we don't know about, don't complain,
+                # we have no way of telling whether it's correct
+                ptr_domain = re.sub(r'^[^\.]+\.', '', ptr)
+                if ptr_domain not in self.known_domains:
+                    continue
 
                 try:
                     ok = False
