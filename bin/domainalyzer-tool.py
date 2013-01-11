@@ -66,6 +66,10 @@ parser.add_option(
   "-c", "--cache-reload", dest="force_reload", action="store_true",
   help="Force a reload of the cache, even if the cached file is recent",
 )
+parser.add_option(
+  "-d", "--dump", dest="dump", action="store_true",
+  help="Dumps all discovered entries to standard output, e.g. for debugging",
+)
 
 (options, args) = parser.parse_args()
 
@@ -149,11 +153,49 @@ def loadCache():
 fzones = options.fzones.split(',')
 rzones = options.rzones.split(',')
 
-if(options.force_reload):
+if options.force_reload:
     checker = refreshCache()
 else:
     checker = loadCache()
 
 print "Cache last refreshed at "+str(checker.processed_at)
+
+if options.dump:
+
+    print "Dumping A->IPv4 map..."
+    for a, ip_list in checker.a_record_to_ip_map.iteritems():
+        print "%s: [%s]" % (a, ','.join(ip_list))
+
+    print "Dumping AAAA->IPv6 map..."
+    for aaaa, ip_list in checker.aaaa_record_to_ip_map.iteritems():
+        print "%s: [%s]" % (aaaa, ','.join(ip_list))
+
+    print "Dumping name->PTR map..."
+    for name, ptr_list in checker.name_to_ptr_record_map.iteritems():
+        print "%s: [%s]" % (name, ','.join(ptr_list))
+
+    print "Dumping cname->name map..."
+    for cname, name in checker.forward_cname_map.iteritems():
+        print "%s: [%s]" % (cname, name)
+
+    print "Dumping IPv4->A map..."
+    for ip, a_list in checker.ip_to_a_record_map.iteritems():
+        print "%s: [%s]" % (ip, ','.join(a_list))
+
+    print "Dumping IPv6->AAAA..."
+    for ip, aaaa_list in checker.ip_to_aaaa_record_map.iteritems():
+        print "%s: [%s]" % (ip, ','.join(aaaa_list))
+
+    print "Dumping PTR->name map..."
+    for ptr, name_list in checker.ptr_record_to_name_map.iteritems():
+        print "%s: [%s]" % (ptr, ','.join(name_list))
+
+    print "Dumping name->cname map..."
+    for name, cname_list in checker.reverse_cname_map.iteritems():
+        print "%s: [%s]" % (name, ','.join(cname_list))
+
+
+
+print "Checking for problems..."
 for aaagh in checker.findProblems():
     print aaagh
