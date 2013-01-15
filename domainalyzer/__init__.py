@@ -24,12 +24,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import dns.resolver, dns.query, dns.zone
 import re
 import cPickle
-from IPy import IP
+import dns
+from dns         import resolver, query, zone
+from IPy         import IP
 from collections import defaultdict
-from datetime import datetime
+from datetime    import datetime
 
 class Domainalyzer:
     """
@@ -73,25 +74,48 @@ class Domainalyzer:
     # List of the domain names we actually know about
     known_domains = []
 
-    def __init__(self, server, domains, rzones):
+    def __init__(self, server=None, domains=None, rzones=None):
         """
-        Requests zone transfer(s) from the specified DNS server of every forward
-        and reverse zone we're interested in, and builds internal mapping tables. 
+        Initialises, optionally with lists of forward and reverse zones.
         """
+
+        if server:
+            print "Loading from %s" % server
+            if domains:
+                self.add_forward_zones(server, domains)
+            if rzones:
+                self.add_reverse_zones(server, rzones)
 
         self.processed_at = datetime.now()
 
+    def add_forward_zones(self, server, domains):
+        """
+        Requests zone transfer(s) from the specified DNS server of every forward
+        zone we're interested in, and builds internal mapping tables. 
+        """
+
         # Build mappings for the forward DNS zones
         for domain_name in domains:
+            print "Transferring %s" %domain_name
 
             # Do a zone transfer from the master DNS server
             try:
                 zone = dns.zone.from_xfr(dns.query.xfr(server, domain_name), relativize=False)
             except:
-                #print "Failed to load "+domain_name
+                import sys
+                print "Failed to load "+domain_name+": "+str(sys.exc_info())
+
                 continue
-            self.map_forward_zone(zone, domain_name)
+            self._map_forward_zone(zone, domain_name)
         
+        self.processed_at = datetime.now()
+        
+    def add_reverse_zones(self, server, rzones):
+        """
+        Requests zone transfer(s) from the specified DNS server of every
+        reverse zone we're interested in, and builds internal mapping tables. 
+        """
+
         # Build mappings for the reverse DNS zones
         for rzone_name in rzones:
 
@@ -138,14 +162,15 @@ class Domainalyzer:
                 continue
 
             # Now we've done all that hairy stuff, build the mappings
-            self.map_reverse_zone(rzone, is_v6, ip_prefix)
+            self._map_reverse_zone(rzone, is_v6, ip_prefix)
+
+        self.processed_at = datetime.now()
 
 
 
 
 
-
-    def map_forward_zone(self, zone, domain_name):
+    def _map_forward_zone(self, zone, domain_name):
         """
         Given a forward DNS zone, build internal mappings of A/AAAA
         records to IPv4/IPv6 addresses, reverse mappings of the IPs
@@ -214,7 +239,7 @@ class Domainalyzer:
 
         self.known_domains.append(domain_name)
 
-    def map_reverse_zone(self, rzone, is_v6, ip_prefix):
+    def _map_reverse_zone(self, rzone, is_v6, ip_prefix):
         """
         Given a reverse DNS zone, build internal mappings of PTR records
         to IPv4/IPv6 addresses

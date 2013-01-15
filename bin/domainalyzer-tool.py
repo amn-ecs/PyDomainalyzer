@@ -109,12 +109,14 @@ if(len(errors) != 0):
 
 
 
-def refreshCache():
+def refreshCache(fzones, rzones):
     """
     Transfers zone files from the server and (if required)
     stores the resulting object to a cache file using cPickle.
     """
-    checker = Domainalyzer(options.server, fzones, rzones)
+    checker = Domainalyzer()
+    checker.add_forward_zones(options.server, fzones)
+    checker.add_reverse_zones(options.server, rzones)
     
     if(options.filename):
         f = open(options.filename, 'w')
@@ -123,7 +125,7 @@ def refreshCache():
 
     return checker
 
-def loadCache():
+def loadCache(fzones, rzones):
     """
     If a cache file is being used, attempt to load a Domainalyzer
     object from the cache.  If it fails, or it's out of date,
@@ -131,7 +133,7 @@ def loadCache():
     """
 
     if(not options.filename):
-        return refreshCache()
+        return refreshCache(fzones, rzones)
 
     try:
         f = open(options.filename, 'r')
@@ -142,7 +144,7 @@ def loadCache():
         checker = None
     
     if(not checker or not checker.processed_at or datetime.now() - checker.processed_at > timedelta(minutes=int(options.max_age))):
-        checker = refreshCache()
+        checker = refreshCache(fzones, rzones)
     
     return checker
 
@@ -154,9 +156,9 @@ fzones = options.fzones.split(',')
 rzones = options.rzones.split(',')
 
 if options.force_reload:
-    checker = refreshCache()
+    checker = refreshCache(fzones, rzones)
 else:
-    checker = loadCache()
+    checker = loadCache(fzones, rzones)
 
 print "Cache last refreshed at "+str(checker.processed_at)
 
